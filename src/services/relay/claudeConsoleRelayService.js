@@ -13,6 +13,7 @@ const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const userMessageQueueService = require('../userMessageQueueService')
 const { isStreamWritable } = require('../../utils/streamHelper')
 const { filterForClaude } = require('../../utils/headerFilter')
+const im = require('../../utils/im')
 
 class ClaudeConsoleRelayService {
   constructor() {
@@ -307,6 +308,18 @@ class ClaudeConsoleRelayService {
         logger.error(
           `📝 Upstream error response from ${account?.name || accountId}: ${rawData.substring(0, 500)}`
         )
+
+        // 发送 IM 通知 - 输出原始错误信息
+        const rawErrorData =
+          typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2)
+        im.sendMessage({
+          message:
+            `❌ Claude Console 非流式请求错误\n` +
+            `Account: ${account?.name || accountId}\n` +
+            `Status: ${response.status}\n` +
+            `原始错误信息:\n${rawErrorData}`,
+          group: 'test'
+        }).catch((e) => logger.warn('Failed to send IM notification:', e))
 
         // 记录清理后的数据到error
         try {
@@ -697,6 +710,19 @@ class ClaudeConsoleRelayService {
           `❌ Claude Console stream relay failed (Account: ${account?.name || accountId}):`,
           error
         )
+
+        // 发送 IM 通知 - 输出原始错误信息
+        const rawError = error.response?.data || error.message || error
+        const rawErrorStr =
+          typeof rawError === 'string' ? rawError : JSON.stringify(rawError, null, 2)
+        im.sendMessage({
+          message:
+            `❌ Claude Console 流式请求错误\n` +
+            `Account: ${account?.name || accountId}\n` +
+            `Request ID: ${requestId}\n` +
+            `原始错误信息:\n${rawErrorStr}`,
+          group: 'test'
+        }).catch((e) => logger.warn('Failed to send IM notification:', e))
       }
       throw error
     } finally {
@@ -842,6 +868,16 @@ class ClaudeConsoleRelayService {
               logger.error(
                 `📝 [Stream] Upstream error response from ${account?.name || accountId}: ${errorDataForCheck.substring(0, 500)}`
               )
+
+              // 发送 IM 通知 - 输出原始错误信息
+              im.sendMessage({
+                message:
+                  `❌ Claude Console 流式响应错误状态\n` +
+                  `Account: ${account?.name || accountId}\n` +
+                  `Status: ${response.status}\n` +
+                  `原始错误信息:\n${errorDataForCheck}`,
+                group: 'test'
+              }).catch((e) => logger.warn('Failed to send IM notification:', e))
 
               // 检查是否为账户禁用错误
               const accountDisabledError = isAccountDisabledError(
@@ -1258,6 +1294,19 @@ class ClaudeConsoleRelayService {
               `❌ Claude Console stream error (Account: ${account?.name || accountId}):`,
               error
             )
+
+            // 发送 IM 通知 - 输出原始错误信息
+            const rawError = error.response?.data || error.message || error
+            const rawErrorStr =
+              typeof rawError === 'string' ? rawError : JSON.stringify(rawError, null, 2)
+            im.sendMessage({
+              message:
+                `❌ Claude Console 流式响应错误\n` +
+                `Account: ${account?.name || accountId}\n` +
+                `原始错误信息:\n${rawErrorStr}`,
+              group: 'test'
+            }).catch((e) => logger.warn('Failed to send IM notification:', e))
+
             if (isStreamWritable(responseStream)) {
               // 如果有 streamTransformer（如测试请求），使用前端期望的格式
               if (streamTransformer) {

@@ -43,6 +43,7 @@ const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const { parseSSELine } = require('../utils/sseParser')
 const { sanitizeUpstreamError } = require('../utils/errorSanitizer')
 const { cleanJsonSchemaForGemini } = require('../utils/geminiSchemaCleaner')
+const im = require('../utils/im')
 const {
   dumpAnthropicNonStreamResponse,
   dumpAnthropicStreamSummary
@@ -2180,8 +2181,23 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
 
       return res.status(200).json(responseBody)
     } catch (error) {
+      // 发送 IM 通知 - 输出原始错误信息
+      const rawError = error.response?.data || error.message || error
+      const rawErrorStr =
+        typeof rawError === 'string' ? rawError : JSON.stringify(rawError, null, 2)
+      im.sendMessage({
+        message:
+          `❌ Gemini API 非流式请求错误\n` +
+          `Vendor: ${vendor}\n` +
+          `Account: ${accountId}\n` +
+          `Model: ${effectiveModel}\n` +
+          `原始错误信息:\n${rawErrorStr}`,
+        group: 'test'
+      }).catch((e) => logger.warn('Failed to send IM notification:', e))
+
       const sanitized = sanitizeUpstreamError(error)
       logger.error('Upstream Gemini error (via /v1/messages):', sanitized)
+
       dumpAnthropicNonStreamResponse(
         req,
         sanitized.statusCode || 502,
@@ -2924,6 +2940,18 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
       }
       const sanitized = sanitizeUpstreamError(error)
       logger.error('Upstream Gemini stream error (via /v1/messages):', sanitized)
+
+      // 发送 IM 通知 - 输出完整错误 JSON
+      im.sendMessage({
+        message:
+          `❌ Gemini API 流式响应错误\n` +
+          `Vendor: ${vendor}\n` +
+          `Account: ${accountId}\n` +
+          `Model: ${effectiveModel}\n` +
+          `完整错误信息:\n${JSON.stringify(sanitized, null, 2)}`,
+        group: 'test'
+      }).catch((e) => logger.warn('Failed to send IM notification:', e))
+
       writeAnthropicSseEvent(
         res,
         'error',
@@ -2948,6 +2976,19 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
 
     // 2. 打印安全日志，绝对不会崩
     logger.error(`❌ [Critical] Failed to start Gemini stream. 错误详情:\n${safeErrorDetails}`)
+
+    // 发送 IM 通知 - 输出原始错误信息
+    const rawError = error.response?.data || error.message || error
+    const rawErrorStr = typeof rawError === 'string' ? rawError : JSON.stringify(rawError, null, 2)
+    im.sendMessage({
+      message:
+        `❌ Gemini API 流式请求错误\n` +
+        `Vendor: ${vendor}\n` +
+        `Account: ${accountId}\n` +
+        `Model: ${effectiveModel}\n` +
+        `原始错误信息:\n${rawErrorStr}`,
+      group: 'test'
+    }).catch((e) => logger.warn('Failed to send IM notification:', e))
 
     const sanitized = sanitizeUpstreamError(error)
 

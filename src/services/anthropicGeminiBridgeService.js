@@ -2185,20 +2185,20 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
       const rawError = error.response?.data || error.message || error
       const rawErrorStr =
         typeof rawError === 'string' ? rawError : JSON.stringify(rawError, null, 2)
+      const sanitized = sanitizeUpstreamError(error)
+      logger.error('Upstream Gemini error (via /v1/messages):', sanitized)
       webhookService
         .sendNotification('systemError', {
           title: 'Gemini API 非流式请求错误',
           platform: 'gemini',
-          apiKeyName: req.apiKey?.name || 'N/A',
+          apiKeyName: req.apiKey?.name || '',
           vendor,
           accountId,
           model: effectiveModel,
-          error: rawErrorStr
+          error: rawErrorStr,
+          sanitizedError: sanitized
         })
         .catch((e) => logger.warn('Failed to send webhook notification:', e))
-
-      const sanitized = sanitizeUpstreamError(error)
-      logger.error('Upstream Gemini error (via /v1/messages):', sanitized)
 
       dumpAnthropicNonStreamResponse(
         req,
@@ -2944,15 +2944,19 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
       logger.error('Upstream Gemini stream error (via /v1/messages):', sanitized)
 
       // 发送 Webhook 通知
+      const rawError = error.response?.data || error.message || error
+      const rawErrorStr =
+        typeof rawError === 'string' ? rawError : JSON.stringify(rawError, null, 2)
       webhookService
         .sendNotification('systemError', {
           title: 'Gemini API 流式响应错误',
           platform: 'gemini',
-          apiKeyName: req.apiKey?.name || req.apiKey?.id || 'N/A',
+          apiKeyName: req.apiKey?.name || '',
           vendor,
           accountId,
           model: effectiveModel,
-          error: sanitized
+          error: rawErrorStr,
+          sanitizedError: sanitized
         })
         .catch((e) => logger.warn('Failed to send webhook notification:', e))
 
@@ -2984,19 +2988,19 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
     // 发送 Webhook 通知
     const rawError = error.response?.data || error.message || error
     const rawErrorStr = typeof rawError === 'string' ? rawError : JSON.stringify(rawError, null, 2)
+    const sanitized = sanitizeUpstreamError(error)
     webhookService
       .sendNotification('systemError', {
         title: 'Gemini API 流式请求错误',
         platform: 'gemini',
-        apiKey: req.apiKey?.name || req.apiKey?.id || 'N/A',
+        apiKeyName: req.apiKey?.name || '',
         vendor,
         accountId,
         model: effectiveModel,
-        error: rawErrorStr
+        error: rawErrorStr,
+        sanitizedError: sanitized
       })
       .catch((e) => logger.warn('Failed to send webhook notification:', e))
-
-    const sanitized = sanitizeUpstreamError(error)
 
     // 3. 特殊处理 Antigravity 的参数错误 (400)，输出详细请求信息便于调试
     if (

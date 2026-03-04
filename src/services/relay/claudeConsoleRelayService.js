@@ -309,9 +309,24 @@ class ClaudeConsoleRelayService {
           `📝 Upstream error response from ${account?.name || accountId}: ${rawData.substring(0, 500)}`
         )
 
-        // 发送 Webhook 通知
+        // 记录清理后的数据到error
         const rawErrorData =
           typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2)
+        let sanitizedError = rawErrorData
+        try {
+          const responseData =
+            typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+          const sanitizedData = sanitizeUpstreamError(responseData)
+          sanitizedError = JSON.stringify(sanitizedData)
+          logger.error(`🧹 [SANITIZED] Error response to client: ${sanitizedError}`)
+        } catch (e) {
+          const rawText =
+            typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
+          sanitizedError = sanitizeErrorMessage(rawText)
+          logger.error(`🧹 [SANITIZED] Error response to client: ${sanitizedError}`)
+        }
+
+        // 发送 Webhook 通知（包含原始错误和处理后错误）
         webhookService
           .sendNotification('systemError', {
             title: 'Claude Console 非流式请求错误',
@@ -320,22 +335,10 @@ class ClaudeConsoleRelayService {
             accountId,
             account: account?.name || accountId,
             status: response.status,
-            error: rawErrorData
+            error: rawErrorData,
+            sanitizedError
           })
           .catch((e) => logger.warn('Failed to send webhook notification:', e))
-
-        // 记录清理后的数据到error
-        try {
-          const responseData =
-            typeof response.data === 'string' ? JSON.parse(response.data) : response.data
-          const sanitizedData = sanitizeUpstreamError(responseData)
-          logger.error(`🧹 [SANITIZED] Error response to client: ${JSON.stringify(sanitizedData)}`)
-        } catch (e) {
-          const rawText =
-            typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
-          const sanitizedText = sanitizeErrorMessage(rawText)
-          logger.error(`🧹 [SANITIZED] Error response to client: ${sanitizedText}`)
-        }
       } else {
         logger.debug(
           `[DEBUG] Response data preview: ${typeof response.data === 'string' ? response.data.substring(0, 200) : JSON.stringify(response.data).substring(0, 200)}`
@@ -877,19 +880,6 @@ class ClaudeConsoleRelayService {
                 `📝 [Stream] Upstream error response from ${account?.name || accountId}: ${errorDataForCheck.substring(0, 500)}`
               )
 
-              // 发送 Webhook 通知
-              webhookService
-                .sendNotification('systemError', {
-                  title: 'Claude Console 流式响应错误状态',
-                  platform: 'claude-console',
-                  apiKeyName: apiKeyData.name || '',
-                  accountId,
-                  account: account?.name || accountId,
-                  status: response.status,
-                  error: errorDataForCheck
-                })
-                .catch((e) => logger.warn('Failed to send webhook notification:', e))
-
               // 检查是否为账户禁用错误
               const accountDisabledError = isAccountDisabledError(
                 response.status,
@@ -969,6 +959,20 @@ class ClaudeConsoleRelayService {
                 const fullErrorData = Buffer.concat(errorChunks).toString()
                 const errorJson = JSON.parse(fullErrorData)
                 const sanitizedError = sanitizeUpstreamError(errorJson)
+
+                // 发送 Webhook 通知
+                webhookService
+                  .sendNotification('systemError', {
+                    title: 'Claude Console 流式响应错误状态',
+                    platform: 'claude-console',
+                    apiKeyName: apiKeyData.name || '',
+                    accountId,
+                    account: account?.name || accountId,
+                    status: response.status,
+                    error: errorDataForCheck,
+                    sanitizedError
+                  })
+                  .catch((e) => logger.warn('Failed to send webhook notification:', e))
 
                 // 记录清理后的错误消息（发送给客户端的，完整记录）
                 logger.error(

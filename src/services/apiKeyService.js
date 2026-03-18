@@ -1654,7 +1654,7 @@ class ApiKeyService {
         cost: Number(ratedCost.toFixed(6)),
         realCost: Number(realCost.toFixed(6)),
         realCostBreakdown: costInfo && costInfo.costs ? costInfo.costs : undefined,
-        ...extra
+        ...(process.env.ENABLE_USAGE_DETAIL === 'true' ? extra : {})
       })
 
       const logParts = [`Model: ${model}`, `Input: ${inputTokens}`, `Output: ${outputTokens}`]
@@ -1910,7 +1910,7 @@ class ApiKeyService {
           ephemeral1h: costInfo.ephemeral1hCost || 0
         },
         isLongContext: costInfo.isLongContextRequest || false,
-        ...extra
+        ...(process.env.ENABLE_USAGE_DETAIL === 'true' ? extra : {})
       }
 
       await redis.addUsageRecord(keyId, usageRecord)

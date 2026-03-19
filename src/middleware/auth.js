@@ -469,6 +469,9 @@ const authenticateApiKey = async (req, res, next) => {
       })
     }
 
+    // 打印headers
+    logger.info(`🔍 headers: ${JSON.stringify(req.headers)}`)
+
     // 验证API Key（带缓存优化）
     const validation = await apiKeyService.validateApiKey(apiKey)
 

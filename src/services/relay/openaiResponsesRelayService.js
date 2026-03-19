@@ -67,6 +67,14 @@ class OpenAIResponsesRelayService {
     let abortController = null
     // 获取会话哈希（如果有的话）
     const sessionId = req.headers['session_id'] || req.body?.session_id
+    logger.info(
+      `🔍 relay sessionId sources: header_session_id=${req.headers['session_id']}, ` +
+        `header_x-session-id=${req.headers['x-session-id']}, ` +
+        `body_session_id=${req.body?.session_id}, ` +
+        `body_conversation_id=${req.body?.conversation_id}, ` +
+        `body_prompt_cache_key=${req.body?.prompt_cache_key}, ` +
+        `body_previous_response_id=${req.body?.previous_response_id}`
+    )
     const sessionHash = sessionId
       ? crypto.createHash('sha256').update(sessionId).digest('hex')
       : null
@@ -634,11 +642,13 @@ class OpenAIResponsesRelayService {
           const modelToRecord = actualModel || requestedModel || 'gpt-4'
 
           const serviceTier = req._serviceTier || null
+          logger.info(`🔍 relay _usageExtra session_id header=${req.headers['session_id']}`)
           const _usageSessionId =
             req.headers['session_id'] ||
             req.headers['x-session-id'] ||
             req.body?.session_id ||
             req.body?.conversation_id ||
+            req.body?.prompt_cache_key ||
             req.body?.previous_response_id ||
             null
           const _usageExtra = {
@@ -694,7 +704,13 @@ class OpenAIResponsesRelayService {
       // 如果在流式响应中检测到限流
       if (rateLimitDetected) {
         // 使用统一调度器处理限流（与非流式响应保持一致）
-        const sessionId = req.headers['session_id'] || req.body?.session_id
+        const sessionId =
+          req.headers['session_id'] ||
+          req.headers['x-session-id'] ||
+          req.body?.session_id ||
+          req.body?.conversation_id ||
+          req.body?.prompt_cache_key ||
+          null
         const sessionHash = sessionId
           ? crypto.createHash('sha256').update(sessionId).digest('hex')
           : null
@@ -788,6 +804,7 @@ class OpenAIResponsesRelayService {
           req.headers['x-session-id'] ||
           req.body?.session_id ||
           req.body?.conversation_id ||
+          req.body?.prompt_cache_key ||
           req.body?.previous_response_id ||
           null
         const _usageExtra = {

@@ -7,10 +7,10 @@
  * 从请求体中提取最后一条用户消息（数组格式）
  * @param {Object} body - 请求体
  * @param {string} format - 格式类型: 'anthropic' | 'openai' | 'gemini'
- * @param {number} maxLength - 每条内容最大截断长度
+ * @param {number} maxLength - 每条内容最大截断长度 暂不再截取
  * @returns {Array<string>} 用户输入内容数组
  */
-function extractUserInput(body, format = 'anthropic', maxLength = 100) {
+function extractUserInput(body, format = 'anthropic') {
   if (!body || typeof body !== 'object') {
     return []
   }
@@ -44,13 +44,14 @@ function extractUserInput(body, format = 'anthropic', maxLength = 100) {
   }
 
   // 替换换行符为空格，压缩连续空白，再截断
-  return result.map((text) => {
-    const cleaned = text.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim()
-    if (cleaned.length > maxLength) {
-      return `${cleaned.substring(0, maxLength)}...`
-    }
-    return cleaned
-  })
+  return result.map((text) =>
+    // const cleaned = text.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim()
+    // if (cleaned.length > maxLength) {
+    //   return `${cleaned.substring(0, maxLength)}...`
+    // }
+    // return cleaned
+    text.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim()
+  )
 }
 
 /**
@@ -59,7 +60,7 @@ function extractUserInput(body, format = 'anthropic', maxLength = 100) {
  * 正序收集前 maxCount 条 user 消息
  * @returns {Array<string>}
  */
-function extractFromAnthropic(body, maxCount = 10) {
+function extractFromAnthropic(body, maxCount = 5) {
   const { messages } = body
   if (!Array.isArray(messages) || messages.length === 0) {
     return []
@@ -97,7 +98,7 @@ function extractFromAnthropic(body, maxCount = 10) {
  * 正序收集前 maxCount 条 user 消息
  * @returns {Array<string>}
  */
-function extractFromOpenAI(body, maxCount = 10) {
+function extractFromOpenAI(body, maxCount = 5) {
   const items = body.input || body.messages
   if (!Array.isArray(items) || items.length === 0) {
     return []
@@ -135,7 +136,7 @@ function extractFromOpenAI(body, maxCount = 10) {
  * 正序收集前 maxCount 条 user 消息
  * @returns {Array<string>}
  */
-function extractFromGemini(body, maxCount = 10) {
+function extractFromGemini(body, maxCount = 5) {
   const { contents } = body
   if (!Array.isArray(contents) || contents.length === 0) {
     if (body.messages) {

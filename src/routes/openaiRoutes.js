@@ -263,6 +263,8 @@ const handleResponses = async (req, res) => {
       null
 
     sessionHash = sessionId ? crypto.createHash('sha256').update(sessionId).digest('hex') : null
+    logger.info(`🔍 handleResponses headers keys: ${Object.keys(req.headers).join(', ')}`)
+    logger.info(`🔍 handleResponses sessionId=${sessionId}, sessionHash=${sessionHash}`)
 
     // 从请求体中提取模型和流式标志
     let requestedModel = req.body?.model || null
@@ -320,6 +322,9 @@ const handleResponses = async (req, res) => {
       sessionId,
       requestedModel
     ))
+    logger.info(
+      `🔍 handleResponses accountId=${accountId}, accountType=${accountType}, accountName=${account.name}, proxy=${proxy}`
+    )
 
     // 如果是 OpenAI-Responses 账户，使用专门的中继服务处理
     if (accountType === 'openai-responses') {

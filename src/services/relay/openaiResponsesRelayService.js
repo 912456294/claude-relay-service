@@ -400,9 +400,15 @@ class OpenAIResponsesRelayService {
       logger.error('OpenAI-Responses relay error:', errorInfo)
 
       // 检查是否是网络错误或超时
-      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+      if (
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ECONNABORTED'
+      ) {
         if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-          logger.error(`❌ OpenAI request timeout (Account: ${account?.id || 'unknown'}, code: ${error.code})`)
+          logger.error(
+            `❌ OpenAI request timeout (Account: ${account?.id || 'unknown'}, code: ${error.code})`
+          )
         }
         if (account?.id) {
           const oaiAutoProtectionDisabled =
@@ -656,6 +662,7 @@ class OpenAIResponsesRelayService {
             null
           const _usageExtra = {
             sessionId: _usageSessionId || null,
+            rawSessionId: _usageSessionId || null,
             userInput: extractUserInput(req.body, 'openai'),
             projectType: classifyProjectType(req.body, 'openai')
           }
@@ -812,6 +819,7 @@ class OpenAIResponsesRelayService {
           null
         const _usageExtra = {
           sessionId: _usageSessionId || null,
+          rawSessionId: _usageSessionId || null,
           userInput: extractUserInput(req.body, 'openai'),
           projectType: classifyProjectType(req.body, 'openai')
         }

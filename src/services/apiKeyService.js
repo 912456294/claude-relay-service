@@ -163,7 +163,8 @@ class ApiKeyService {
       icon = '', // 新增：图标（base64编码）
       serviceRates = {}, // API Key 级别服务倍率覆盖
       weeklyResetDay = 1, // 周费用重置日 (1=周一 ... 7=周日)
-      weeklyResetHour = 0 // 周费用重置时 (0-23)
+      weeklyResetHour = 0, // 周费用重置时 (0-23)
+      translateReasoning = false // 是否对该 Key 启用思考链路翻译
     } = options
 
     // 生成简单的API Key (64字符十六进制)
@@ -215,7 +216,8 @@ class ApiKeyService {
       icon: icon || '', // 新增：图标（base64编码）
       serviceRates: JSON.stringify(serviceRates || {}), // API Key 级别服务倍率
       weeklyResetDay: String(weeklyResetDay || 1), // 周费用重置日 (1-7)
-      weeklyResetHour: String(weeklyResetHour || 0) // 周费用重置时 (0-23)
+      weeklyResetHour: String(weeklyResetHour || 0), // 周费用重置时 (0-23)
+      translateReasoning: String(translateReasoning || false) // 思考链路翻译
     }
 
     // 保存API Key数据并建立哈希映射
@@ -1237,7 +1239,8 @@ class ApiKeyService {
         'createdBy', // 新增：创建者（所有者变更）
         'serviceRates', // API Key 级别服务倍率
         'weeklyResetDay', // 周费用重置日 (1-7)
-        'weeklyResetHour' // 周费用重置时 (0-23)
+        'weeklyResetHour', // 周费用重置时 (0-23)
+        'translateReasoning' // 思考链路翻译
       ]
       const updatedData = { ...keyData }
 

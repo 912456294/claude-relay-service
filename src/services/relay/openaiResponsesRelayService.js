@@ -10,6 +10,7 @@ const crypto = require('crypto')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const webhookService = require('../webhookService')
+const { extractUserInput, classifyProjectType } = require('../../utils/userInputExtractor')
 
 // lastUsedAt 更新节流（每账户 60 秒内最多更新一次，使用 LRU 防止内存泄漏）
 const lastUsedAtThrottle = new LRUCache(1000) // 最多缓存 1000 个账户
@@ -66,6 +67,14 @@ class OpenAIResponsesRelayService {
     let abortController = null
     // 获取会话哈希（如果有的话）
     const sessionId = req.headers['session_id'] || req.body?.session_id
+    logger.info(
+      `🔍 relay sessionId sources: header_session_id=${req.headers['session_id']}, ` +
+        `header_x-session-id=${req.headers['x-session-id']}, ` +
+        `body_session_id=${req.body?.session_id}, ` +
+        `body_conversation_id=${req.body?.conversation_id}, ` +
+        `body_prompt_cache_key=${req.body?.prompt_cache_key}, ` +
+        `body_previous_response_id=${req.body?.previous_response_id}`
+    )
     const sessionHash = sessionId
       ? crypto.createHash('sha256').update(sessionId).digest('hex')
       : null
@@ -390,8 +399,17 @@ class OpenAIResponsesRelayService {
       }
       logger.error('OpenAI-Responses relay error:', errorInfo)
 
-      // 检查是否是网络错误
-      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      // 检查是否是网络错误或超时
+      if (
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ECONNABORTED'
+      ) {
+        if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+          logger.error(
+            `❌ OpenAI request timeout (Account: ${account?.id || 'unknown'}, code: ${error.code})`
+          )
+        }
         if (account?.id) {
           const oaiAutoProtectionDisabled =
             account?.disableAutoProtection === true || account?.disableAutoProtection === 'true'
@@ -633,6 +651,21 @@ class OpenAIResponsesRelayService {
           const modelToRecord = actualModel || requestedModel || 'gpt-4'
 
           const serviceTier = req._serviceTier || null
+          logger.info(`🔍 relay _usageExtra session_id header=${req.headers['session_id']}`)
+          const _usageSessionId =
+            req.headers['session_id'] ||
+            req.headers['x-session-id'] ||
+            req.body?.session_id ||
+            req.body?.conversation_id ||
+            req.body?.prompt_cache_key ||
+            req.body?.previous_response_id ||
+            null
+          const _usageExtra = {
+            sessionId: _usageSessionId || null,
+            rawSessionId: _usageSessionId || null,
+            userInput: extractUserInput(req.body, 'openai'),
+            projectType: classifyProjectType(req.body, 'openai')
+          }
           await apiKeyService.recordUsage(
             apiKeyData.id,
             actualInputTokens, // 传递实际输入（不含缓存）
@@ -642,12 +675,17 @@ class OpenAIResponsesRelayService {
             modelToRecord,
             account.id,
             'openai-responses',
-            serviceTier
+            serviceTier,
+            null,
+            _usageExtra
           )
 
           logger.info(
             `📊 Recorded usage - Input: ${totalInputTokens}(actual:${actualInputTokens}+cached:${cacheReadTokens}), CacheCreate: ${cacheCreateTokens}, Output: ${outputTokens}, Total: ${totalTokens}, Model: ${modelToRecord}`
           )
+
+          // 打印出 req headers 信息
+          logger.info(`🔍 extractUserInput request headers: ${JSON.stringify(req.headers)}`)
 
           // 更新账户的 token 使用统计
           await openaiResponsesAccountService.updateAccountUsage(account.id, totalTokens)
@@ -676,7 +714,13 @@ class OpenAIResponsesRelayService {
       // 如果在流式响应中检测到限流
       if (rateLimitDetected) {
         // 使用统一调度器处理限流（与非流式响应保持一致）
-        const sessionId = req.headers['session_id'] || req.body?.session_id
+        const sessionId =
+          req.headers['session_id'] ||
+          req.headers['x-session-id'] ||
+          req.body?.session_id ||
+          req.body?.conversation_id ||
+          req.body?.prompt_cache_key ||
+          null
         const sessionHash = sessionId
           ? crypto.createHash('sha256').update(sessionId).digest('hex')
           : null
@@ -765,6 +809,20 @@ class OpenAIResponsesRelayService {
           usageData.total_tokens || totalInputTokens + outputTokens + cacheCreateTokens
 
         const serviceTier = req._serviceTier || null
+        const _usageSessionId =
+          req.headers['session_id'] ||
+          req.headers['x-session-id'] ||
+          req.body?.session_id ||
+          req.body?.conversation_id ||
+          req.body?.prompt_cache_key ||
+          req.body?.previous_response_id ||
+          null
+        const _usageExtra = {
+          sessionId: _usageSessionId || null,
+          rawSessionId: _usageSessionId || null,
+          userInput: extractUserInput(req.body, 'openai'),
+          projectType: classifyProjectType(req.body, 'openai')
+        }
         await apiKeyService.recordUsage(
           apiKeyData.id,
           actualInputTokens, // 传递实际输入（不含缓存）
@@ -774,7 +832,9 @@ class OpenAIResponsesRelayService {
           actualModel,
           account.id,
           'openai-responses',
-          serviceTier
+          serviceTier,
+          null,
+          _usageExtra
         )
 
         logger.info(

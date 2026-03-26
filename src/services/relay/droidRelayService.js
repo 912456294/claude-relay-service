@@ -9,6 +9,7 @@ const { updateRateLimitCounters } = require('../../utils/rateLimitHelper')
 const logger = require('../../utils/logger')
 const runtimeAddon = require('../../utils/runtimeAddon')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+const { extractUserInput, classifyProjectType } = require('../../utils/userInputExtractor')
 
 const SYSTEM_PROMPT = 'You are Droid, an AI software engineering agent built by Factory.'
 const RUNTIME_EVENT_FMT_PAYLOAD = 'fmtPayload'
@@ -343,7 +344,8 @@ class DroidRelayService {
           normalizedRequestBody,
           clientRequest,
           normalizedEndpoint,
-          skipUsageRecord
+          skipUsageRecord,
+          sessionHash
         )
       }
     } catch (error) {
@@ -624,11 +626,17 @@ class DroidRelayService {
 
           // 记录 usage 数据
           if (!skipUsageRecord) {
+            const _usageExtra = {
+              sessionId: sessionHash || null,
+              userInput: extractUserInput(requestBody, 'anthropic'),
+              projectType: classifyProjectType(requestBody, 'anthropic')
+            }
             const { normalizedUsage, costs: streamCosts } = await this._recordUsageFromStreamData(
               currentUsageData,
               apiKeyData,
               account,
-              model
+              model,
+              _usageExtra
             )
 
             const usageSummary = {
@@ -878,9 +886,9 @@ class DroidRelayService {
   /**
    * 记录从流中解析的 usage 数据
    */
-  async _recordUsageFromStreamData(usageData, apiKeyData, account, model) {
+  async _recordUsageFromStreamData(usageData, apiKeyData, account, model, extra = {}) {
     const normalizedUsage = this._normalizeUsageSnapshot(usageData)
-    const costs = await this._recordUsage(apiKeyData, account, model, normalizedUsage)
+    const costs = await this._recordUsage(apiKeyData, account, model, normalizedUsage, extra)
     return { normalizedUsage, costs }
   }
 
@@ -1230,7 +1238,8 @@ class DroidRelayService {
     requestBody,
     clientRequest,
     endpointType,
-    skipUsageRecord = false
+    skipUsageRecord = false,
+    sessionHash = null
   ) {
     const { data } = response
     const keyId = apiKeyData?.id
@@ -1243,7 +1252,18 @@ class DroidRelayService {
     const normalizedUsage = this._normalizeUsageSnapshot(usage)
 
     if (!skipUsageRecord) {
-      const droidCosts = await this._recordUsage(apiKeyData, account, model, normalizedUsage)
+      const _usageExtra = {
+        sessionId: sessionHash || null,
+        userInput: extractUserInput(requestBody, 'anthropic'),
+        projectType: classifyProjectType(requestBody, 'anthropic')
+      }
+      const droidCosts = await this._recordUsage(
+        apiKeyData,
+        account,
+        model,
+        normalizedUsage,
+        _usageExtra
+      )
 
       const totalTokens = this._getTotalTokens(normalizedUsage)
 
@@ -1288,7 +1308,7 @@ class DroidRelayService {
   /**
    * 记录使用统计
    */
-  async _recordUsage(apiKeyData, account, model, usageObject = {}) {
+  async _recordUsage(apiKeyData, account, model, usageObject = {}, extra = {}) {
     const totalTokens = this._getTotalTokens(usageObject)
 
     if (totalTokens <= 0) {
@@ -1307,7 +1327,8 @@ class DroidRelayService {
           usageObject,
           model,
           accountId,
-          'droid'
+          'droid',
+          extra
         )
       } else if (accountId) {
         await redis.incrementAccountUsage(

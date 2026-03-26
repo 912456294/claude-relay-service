@@ -26,6 +26,7 @@ const {
   handleAnthropicCountTokensToGemini
 } = require('../services/anthropicGeminiBridgeService')
 const webhookService = require('../services/webhookService')
+const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
 const router = express.Router()
 
 // 每日通知缓存：apiKeyName -> 日期
@@ -203,18 +204,6 @@ async function handleMessagesRequest(req, res) {
       }
     }
 
-    // 检测 1M 上下文窗口请求（anthropic-beta 包含 context-1m）
-    const betaHeader = (req.headers['anthropic-beta'] || '').toLowerCase()
-    const is1mContextRequest = betaHeader.includes('context-1m')
-    if (is1mContextRequest && !req.apiKey.allow1mContext) {
-      return res.status(403).json({
-        error: {
-          type: 'forbidden',
-          message: '该 API Key 未启用 1M 上下文窗口，请联系管理员开启或切换为非 [1m] 模型'
-        }
-      })
-    }
-
     logger.api('📥 /v1/messages request received', {
       model: req.body.model || null,
       forcedVendor,
@@ -305,6 +294,20 @@ async function handleMessagesRequest(req, res) {
       // 生成会话哈希用于sticky会话
       const sessionHash = sessionHelper.generateSessionHash(req.body)
 
+      const _userInput = extractUserInput(req.body, 'anthropic')
+      logger.info(
+        `🔍 api.js stream body_keys=${Object.keys(req.body || {})}, session_id=${req.body?.session_id}, metadata=${JSON.stringify(req.body?.metadata)}`
+      )
+      const _usageExtra = {
+        sessionId: sessionHash || null,
+        rawSessionId:
+          req.headers['session_id'] ||
+          claudeRelayConfigService.extractOriginalSessionId(req.body) ||
+          null,
+        userInput: _userInput,
+        projectType: classifyProjectType(req.body, 'anthropic')
+      }
+
       // 🔒 全局会话绑定验证
       let forcedAccount = null
       let needSessionBinding = false
@@ -391,13 +394,6 @@ async function handleMessagesRequest(req, res) {
           return
         }
         throw error
-      }
-
-      // 1M 上下文窗口：记录日志（admin 已通过 allow1mContext 授权，信任其决定）
-      if (is1mContextRequest) {
-        logger.api(
-          `📐 1M context request allowed for key: ${req.apiKey.name}, accountType: ${accountType}`
-        )
       }
 
       // 🔗 在成功调度后建立会话绑定（仅 claude-official 类型）
@@ -522,7 +518,14 @@ async function handleMessagesRequest(req, res) {
               }
 
               apiKeyService
-                .recordUsageWithDetails(_apiKeyId, usageObject, model, usageAccountId, accountType)
+                .recordUsageWithDetails(
+                  _apiKeyId,
+                  usageObject,
+                  model,
+                  usageAccountId,
+                  accountType,
+                  _usageExtra
+                )
                 .then((costs) => {
                   queueRateLimitUpdate(
                     _rateLimitInfo,
@@ -653,7 +656,8 @@ async function handleMessagesRequest(req, res) {
                   usageObject,
                   model,
                   usageAccountId,
-                  'claude-console'
+                  'claude-console',
+                  _usageExtra
                 )
                 .then((costs) => {
                   queueRateLimitUpdate(
@@ -734,7 +738,10 @@ async function handleMessagesRequest(req, res) {
                 0,
                 result.model,
                 accountId,
-                'bedrock'
+                'bedrock',
+                null,
+                null,
+                _usageExtra
               )
               .then((costs) => {
                 queueRateLimitUpdate(
@@ -857,7 +864,14 @@ async function handleMessagesRequest(req, res) {
               }
 
               apiKeyService
-                .recordUsageWithDetails(_apiKeyIdCcr, usageObject, model, usageAccountId, 'ccr')
+                .recordUsageWithDetails(
+                  _apiKeyIdCcr,
+                  usageObject,
+                  model,
+                  usageAccountId,
+                  'ccr',
+                  _usageExtra
+                )
                 .then((costs) => {
                   queueRateLimitUpdate(
                     _rateLimitInfoCcr,
@@ -980,6 +994,20 @@ async function handleMessagesRequest(req, res) {
 
       // 生成会话哈希用于sticky会话
       const sessionHash = sessionHelper.generateSessionHash(req.body)
+
+      const _userInputNonStream = extractUserInput(req.body, 'anthropic')
+      logger.info(
+        `🔍 api.js non-stream session_id header=${req.headers['session_id']}, metadata_user_id=${req.body?.metadata?.user_id}`
+      )
+      const _usageExtraNonStream = {
+        sessionId: sessionHash || null,
+        rawSessionId:
+          req.headers['session_id'] ||
+          claudeRelayConfigService.extractOriginalSessionId(req.body) ||
+          null,
+        userInput: _userInputNonStream,
+        projectType: classifyProjectType(req.body, 'anthropic')
+      }
 
       // 🔒 全局会话绑定验证（非流式）
       let forcedAccountNonStream = null
@@ -1281,7 +1309,8 @@ async function handleMessagesRequest(req, res) {
             usageObject,
             model,
             responseAccountId,
-            accountType
+            accountType,
+            _usageExtraNonStream
           )
 
           await queueRateLimitUpdate(

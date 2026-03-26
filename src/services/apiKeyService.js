@@ -146,6 +146,7 @@ class ApiKeyService {
       permissions = [], // 数组格式，空数组表示全部服务，如 ['claude', 'gemini']
       isActive = true,
       concurrencyLimit = 0,
+      rateLimits = [], // 多规则速率限制 [{window, requests, cost}, ...]
       rateLimitWindow = null,
       rateLimitRequests = null,
       rateLimitCost = null, // 新增：速率限制费用字段
@@ -153,7 +154,6 @@ class ApiKeyService {
       restrictedModels = [],
       enableClientRestriction = false,
       allowedClients = [],
-      allow1mContext = false,
       dailyCostLimit = 0,
       totalCostLimit = 0,
       weeklyOpusCostLimit = 0,
@@ -164,7 +164,8 @@ class ApiKeyService {
       icon = '', // 新增：图标（base64编码）
       serviceRates = {}, // API Key 级别服务倍率覆盖
       weeklyResetDay = 1, // 周费用重置日 (1=周一 ... 7=周日)
-      weeklyResetHour = 0 // 周费用重置时 (0-23)
+      weeklyResetHour = 0, // 周费用重置时 (0-23)
+      translateReasoning = false // 是否对该 Key 启用思考链路翻译
     } = options
 
     // 生成简单的API Key (64字符十六进制)
@@ -185,6 +186,7 @@ class ApiKeyService {
       rateLimitWindow: String(rateLimitWindow ?? 0),
       rateLimitRequests: String(rateLimitRequests ?? 0),
       rateLimitCost: String(rateLimitCost ?? 0), // 新增：速率限制费用字段
+      rateLimits: JSON.stringify(rateLimits || []), // 多规则速率限制
       isActive: String(isActive),
       claudeAccountId: claudeAccountId || '',
       claudeConsoleAccountId: claudeConsoleAccountId || '',
@@ -198,7 +200,6 @@ class ApiKeyService {
       restrictedModels: JSON.stringify(restrictedModels || []),
       enableClientRestriction: String(enableClientRestriction || false),
       allowedClients: JSON.stringify(allowedClients || []),
-      allow1mContext: String(allow1mContext || false),
       dailyCostLimit: String(dailyCostLimit || 0),
       totalCostLimit: String(totalCostLimit || 0),
       weeklyOpusCostLimit: String(weeklyOpusCostLimit || 0),
@@ -217,7 +218,8 @@ class ApiKeyService {
       icon: icon || '', // 新增：图标（base64编码）
       serviceRates: JSON.stringify(serviceRates || {}), // API Key 级别服务倍率
       weeklyResetDay: String(weeklyResetDay || 1), // 周费用重置日 (1-7)
-      weeklyResetHour: String(weeklyResetHour || 0) // 周费用重置时 (0-23)
+      weeklyResetHour: String(weeklyResetHour || 0), // 周费用重置时 (0-23)
+      translateReasoning: String(translateReasoning || false) // 思考链路翻译
     }
 
     // 保存API Key数据并建立哈希映射
@@ -259,6 +261,7 @@ class ApiKeyService {
       rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
       rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
       rateLimitCost: parseFloat(keyData.rateLimitCost || 0), // 新增：速率限制费用字段
+      rateLimits: JSON.parse(keyData.rateLimits || '[]'), // 多规则速率限制
       isActive: keyData.isActive === 'true',
       claudeAccountId: keyData.claudeAccountId,
       claudeConsoleAccountId: keyData.claudeConsoleAccountId,
@@ -449,11 +452,28 @@ class ApiKeyService {
           rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
           rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
           rateLimitCost: parseFloat(keyData.rateLimitCost || 0), // 新增：速率限制费用字段
+          rateLimits: (() => {
+            try {
+              const parsed = keyData.rateLimits ? JSON.parse(keyData.rateLimits) : []
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                return parsed
+              }
+            } catch (e) {
+              // ignore
+            }
+            // 向后兼容：从旧字段构造单条规则
+            const w = parseInt(keyData.rateLimitWindow || 0)
+            const r = parseInt(keyData.rateLimitRequests || 0)
+            const c = parseFloat(keyData.rateLimitCost || 0)
+            if (w > 0 && (r > 0 || c > 0)) {
+              return [{ window: w, requests: r, cost: c }]
+            }
+            return []
+          })(),
           enableModelRestriction: keyData.enableModelRestriction === 'true',
           restrictedModels,
           enableClientRestriction: keyData.enableClientRestriction === 'true',
           allowedClients,
-          allow1mContext: keyData.allow1mContext === 'true',
           dailyCostLimit,
           totalCostLimit,
           weeklyOpusCostLimit,
@@ -581,6 +601,13 @@ class ApiKeyService {
           rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
           rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
           rateLimitCost: parseFloat(keyData.rateLimitCost || 0),
+          rateLimits: (() => {
+            try {
+              return keyData.rateLimits ? JSON.parse(keyData.rateLimits) : []
+            } catch (e) {
+              return []
+            }
+          })(),
           enableModelRestriction: keyData.enableModelRestriction === 'true',
           restrictedModels,
           enableClientRestriction: keyData.enableClientRestriction === 'true',
@@ -792,6 +819,11 @@ class ApiKeyService {
         key.rateLimitWindow = parseInt(key.rateLimitWindow || 0)
         key.rateLimitRequests = parseInt(key.rateLimitRequests || 0)
         key.rateLimitCost = parseFloat(key.rateLimitCost || 0) // 新增：速率限制费用字段
+        try {
+          key.rateLimits = key.rateLimits ? JSON.parse(key.rateLimits) : []
+        } catch (e) {
+          key.rateLimits = []
+        }
         key.currentConcurrency = await redis.getConcurrency(key.id)
         key.isActive = key.isActive === 'true'
         key.enableModelRestriction = key.enableModelRestriction === 'true'
@@ -1040,6 +1072,11 @@ class ApiKeyService {
         key.rateLimitWindow = parseInt(key.rateLimitWindow) || 0
         key.rateLimitRequests = parseInt(key.rateLimitRequests) || 0
         key.rateLimitCost = parseFloat(key.rateLimitCost) || 0
+        try {
+          key.rateLimits = key.rateLimits ? JSON.parse(key.rateLimits) : []
+        } catch (e) {
+          key.rateLimits = []
+        }
         key.dailyCostLimit = parseFloat(key.dailyCostLimit) || 0
         key.totalCostLimit = parseFloat(key.totalCostLimit) || 0
         key.weeklyOpusCostLimit = parseFloat(key.weeklyOpusCostLimit) || 0
@@ -1212,6 +1249,7 @@ class ApiKeyService {
         'rateLimitWindow',
         'rateLimitRequests',
         'rateLimitCost', // 新增：速率限制费用字段
+        'rateLimits', // 多规则速率限制
         'isActive',
         'claudeAccountId',
         'claudeConsoleAccountId',
@@ -1231,7 +1269,6 @@ class ApiKeyService {
         'restrictedModels',
         'enableClientRestriction',
         'allowedClients',
-        'allow1mContext',
         'dailyCostLimit',
         'totalCostLimit',
         'weeklyOpusCostLimit',
@@ -1241,7 +1278,8 @@ class ApiKeyService {
         'createdBy', // 新增：创建者（所有者变更）
         'serviceRates', // API Key 级别服务倍率
         'weeklyResetDay', // 周费用重置日 (1-7)
-        'weeklyResetHour' // 周费用重置时 (0-23)
+        'weeklyResetHour', // 周费用重置时 (0-23)
+        'translateReasoning' // 思考链路翻译
       ]
       const updatedData = { ...keyData }
 
@@ -1251,7 +1289,8 @@ class ApiKeyService {
             field === 'restrictedModels' ||
             field === 'allowedClients' ||
             field === 'tags' ||
-            field === 'serviceRates'
+            field === 'serviceRates' ||
+            field === 'rateLimits'
           ) {
             // 特殊处理数组/对象字段
             updatedData[field] = JSON.stringify(value || (field === 'serviceRates' ? {} : []))
@@ -1541,7 +1580,8 @@ class ApiKeyService {
     accountId = null,
     accountType = null,
     timestamp = null,
-    serviceTier = null
+    serviceTier = null,
+    extra = {}
   ) {
     try {
       const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
@@ -1656,7 +1696,8 @@ class ApiKeyService {
         totalTokens,
         cost: Number(ratedCost.toFixed(6)),
         realCost: Number(realCost.toFixed(6)),
-        realCostBreakdown: costInfo && costInfo.costs ? costInfo.costs : undefined
+        realCostBreakdown: costInfo && costInfo.costs ? costInfo.costs : undefined,
+        ...(process.env.ENABLE_USAGE_DETAIL === 'true' ? extra : {})
       })
 
       const logParts = [`Model: ${model}`, `Input: ${inputTokens}`, `Output: ${outputTokens}`]
@@ -1715,7 +1756,8 @@ class ApiKeyService {
     usageObject,
     model = 'unknown',
     accountId = null,
-    accountType = null
+    accountType = null,
+    extra = {}
   ) {
     try {
       // 提取 token 数量
@@ -1910,7 +1952,8 @@ class ApiKeyService {
           ephemeral5m: costInfo.ephemeral5mCost || 0,
           ephemeral1h: costInfo.ephemeral1hCost || 0
         },
-        isLongContext: costInfo.isLongContextRequest || false
+        isLongContext: costInfo.isLongContextRequest || false,
+        ...(process.env.ENABLE_USAGE_DETAIL === 'true' ? extra : {})
       }
 
       await redis.addUsageRecord(keyId, usageRecord)
@@ -2395,7 +2438,6 @@ class ApiKeyService {
       const days = periodDays[period] || 7
 
       // 计算起始日期：今天减去 (days - 1) 天
-      const endDate = new Date()
       const startDate = new Date()
       startDate.setDate(startDate.getDate() - (days - 1))
 
@@ -2430,7 +2472,6 @@ class ApiKeyService {
       } else {
         // 扫描这些 Key 使用过的所有模型
         const modelSet = new Set()
-        const client = redis.getClientSafe()
         // 并行扫描所有 Key 的 alltime 模型记录
         await Promise.all(
           keyIds.map(async (keyId) => {
@@ -2496,7 +2537,9 @@ class ApiKeyService {
 
       // 处理结果
       results.forEach(([err, data], index) => {
-        if (err || !data) return
+        if (err || !data) {
+          return
+        }
 
         const query = queryMap[index]
 
@@ -2547,7 +2590,8 @@ class ApiKeyService {
             modelMap[query.model].outputTokens += outputTokens
             modelMap[query.model].cacheCreateTokens += cacheCreateTokens
             modelMap[query.model].cacheReadTokens += cacheReadTokens
-            modelMap[query.model].totalTokens += inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
+            modelMap[query.model].totalTokens +=
+              inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
             modelMap[query.model].cost += cost
 
             // 如果有模型过滤，Daily Stats 必须从这里累加

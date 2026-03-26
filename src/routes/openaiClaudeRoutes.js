@@ -18,6 +18,12 @@ const sessionHelper = require('../utils/sessionHelper')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const pricingService = require('../services/pricingService')
 const { getEffectiveModel } = require('../utils/modelHelper')
+const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
+const {
+  applyReasoningTranslation,
+  shouldTranslateForKey
+} = require('../utils/reasoningTranslationTransformer')
+const config = require('../../config/config')
 
 // 🔧 辅助函数：检查 API Key 权限
 function checkPermissions(apiKeyData, requiredPermission = 'claude') {
@@ -253,6 +259,16 @@ async function handleChatCompletion(req, res, apiKeyData) {
       userAgent: claudeCodeHeaders['user-agent']
     })
 
+    // 构建 extra 信息用于 usage 记录
+    const _userInput = extractUserInput(req.body, 'openai')
+    const _usageExtra = {
+      sessionId: sessionHash || null,
+      rawSessionId:
+        req.headers['session_id'] || req.headers['x-session-id'] || req.body?.session_id || null,
+      userInput: _userInput,
+      projectType: classifyProjectType(req.body, 'openai')
+    }
+
     // 处理流式请求
     if (claudeRequest.stream) {
       logger.info(`🌊 Processing OpenAI stream request for model: ${req.body.model}`)
@@ -305,7 +321,8 @@ async function handleChatCompletion(req, res, apiKeyData) {
               usageWithRequestMeta, // 传递 usage + 请求模式元信息（beta/speed）
               model,
               accountId,
-              accountType
+              accountType,
+              _usageExtra
             )
             .then((costs) => {
               queueRateLimitUpdate(
@@ -346,6 +363,15 @@ async function handleChatCompletion(req, res, apiKeyData) {
       const sessionId = `chatcmpl-${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`
       const streamTransformer = (chunk) =>
         openaiToClaude.convertStreamChunk(chunk, req.body.model, sessionId)
+
+      // 思考链路翻译：Key 名称命中 TRANSLATE_KEY_NAMES 时生效
+      if (shouldTranslateForKey(apiKeyData.name)) {
+        applyReasoningTranslation(res, {
+          keyId: apiKeyData.id,
+          model: config.translation.model
+        })
+        logger.debug(`🌐 [ReasoningTranslation] 已为 API Key "${apiKeyData.name}" 启用思考链路翻译`)
+      }
 
       // 根据账户类型选择转发服务
       if (accountType === 'claude-console') {
@@ -458,7 +484,8 @@ async function handleChatCompletion(req, res, apiKeyData) {
             usageWithRequestMeta, // 传递 usage + 请求模式元信息（beta/speed）
             claudeRequest.model,
             accountId,
-            accountType
+            accountType,
+            _usageExtra
           )
           .then((costs) => {
             queueRateLimitUpdate(

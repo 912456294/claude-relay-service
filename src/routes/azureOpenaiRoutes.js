@@ -7,6 +7,7 @@ const azureOpenaiRelayService = require('../services/relay/azureOpenaiRelayServi
 const apiKeyService = require('../services/apiKeyService')
 const crypto = require('crypto')
 const upstreamErrorHelper = require('../utils/upstreamErrorHelper')
+const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
 
 // 支持的模型列表 - 基于真实的 Azure OpenAI 模型
 const ALLOWED_MODELS = {
@@ -36,7 +37,7 @@ class AtomicUsageReporter {
     this.pendingReports = new Map()
   }
 
-  async reportOnce(requestId, usageData, apiKeyId, modelToRecord, accountId) {
+  async reportOnce(requestId, usageData, apiKeyId, modelToRecord, accountId, extra = {}) {
     if (this.reportedUsage.has(requestId)) {
       logger.debug(`Usage already reported for request: ${requestId}`)
       return false
@@ -52,7 +53,8 @@ class AtomicUsageReporter {
       usageData,
       apiKeyId,
       modelToRecord,
-      accountId
+      accountId,
+      extra
     )
     this.pendingReports.set(requestId, reportPromise)
 
@@ -67,7 +69,7 @@ class AtomicUsageReporter {
     }
   }
 
-  async _performReport(requestId, usageData, apiKeyId, modelToRecord, accountId) {
+  async _performReport(requestId, usageData, apiKeyId, modelToRecord, accountId, extra = {}) {
     try {
       const inputTokens = usageData.prompt_tokens || usageData.input_tokens || 0
       const outputTokens = usageData.completion_tokens || usageData.output_tokens || 0
@@ -88,7 +90,10 @@ class AtomicUsageReporter {
         cacheReadTokens,
         modelToRecord,
         accountId,
-        'azure-openai'
+        'azure-openai',
+        null,
+        null,
+        extra
       )
 
       // 同步更新 Azure 账户的 lastUsedAt 和累计使用量
@@ -217,12 +222,18 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
         onEnd: async ({ usageData, actualModel }) => {
           if (usageData) {
             const modelToRecord = actualModel || req.body.model || 'unknown'
+            const _usageExtra = {
+              sessionId: sessionId || null,
+              userInput: extractUserInput(req.body, 'openai'),
+              projectType: classifyProjectType(req.body, 'openai')
+            }
             await usageReporter.reportOnce(
               requestId,
               usageData,
               req.apiKey.id,
               modelToRecord,
-              account.id
+              account.id,
+              _usageExtra
             )
           }
         },
@@ -239,12 +250,18 @@ router.post('/chat/completions', authenticateApiKey, async (req, res) => {
 
       if (usageData) {
         const modelToRecord = actualModel || req.body.model || 'unknown'
+        const _usageExtra = {
+          sessionId: sessionId || null,
+          userInput: extractUserInput(req.body, 'openai'),
+          projectType: classifyProjectType(req.body, 'openai')
+        }
         await usageReporter.reportOnce(
           requestId,
           usageData,
           req.apiKey.id,
           modelToRecord,
-          account.id
+          account.id,
+          _usageExtra
         )
       }
     }
@@ -338,12 +355,18 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
         onEnd: async ({ usageData, actualModel }) => {
           if (usageData) {
             const modelToRecord = actualModel || req.body.model || 'unknown'
+            const _usageExtra = {
+              sessionId: sessionId || null,
+              userInput: extractUserInput(req.body, 'openai'),
+              projectType: classifyProjectType(req.body, 'openai')
+            }
             await usageReporter.reportOnce(
               requestId,
               usageData,
               req.apiKey.id,
               modelToRecord,
-              account.id
+              account.id,
+              _usageExtra
             )
           }
         },
@@ -360,12 +383,18 @@ router.post('/responses', authenticateApiKey, async (req, res) => {
 
       if (usageData) {
         const modelToRecord = actualModel || req.body.model || 'unknown'
+        const _usageExtra = {
+          sessionId: sessionId || null,
+          userInput: extractUserInput(req.body, 'openai'),
+          projectType: classifyProjectType(req.body, 'openai')
+        }
         await usageReporter.reportOnce(
           requestId,
           usageData,
           req.apiKey.id,
           modelToRecord,
-          account.id
+          account.id,
+          _usageExtra
         )
       }
     }
@@ -460,7 +489,19 @@ router.post('/embeddings', authenticateApiKey, async (req, res) => {
 
     if (usageData) {
       const modelToRecord = actualModel || req.body.model || 'unknown'
-      await usageReporter.reportOnce(requestId, usageData, req.apiKey.id, modelToRecord, account.id)
+      const _usageExtra = {
+        sessionId: sessionId || null,
+        userInput: extractUserInput(req.body, 'openai'),
+        projectType: classifyProjectType(req.body, 'openai')
+      }
+      await usageReporter.reportOnce(
+        requestId,
+        usageData,
+        req.apiKey.id,
+        modelToRecord,
+        account.id,
+        _usageExtra
+      )
     }
   } catch (error) {
     logger.error(`Azure OpenAI embeddings request failed ${requestId}:`, error)

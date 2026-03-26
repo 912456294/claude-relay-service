@@ -773,7 +773,7 @@ class RedisClient {
     const parsed = { ...data }
 
     // 布尔字段
-    const boolFields = ['isActive', 'enableModelRestriction', 'isDeleted', 'allow1mContext']
+    const boolFields = ['isActive', 'enableModelRestriction', 'isDeleted', 'translateReasoning']
     for (const field of boolFields) {
       if (parsed[field] !== undefined) {
         parsed[field] = parsed[field] === 'true'
@@ -799,7 +799,7 @@ class RedisClient {
     }
 
     // 数组字段（JSON 解析）
-    const arrayFields = ['tags', 'restrictedModels', 'allowedClients']
+    const arrayFields = ['tags', 'restrictedModels', 'allowedClients', 'rateLimits']
     for (const field of arrayFields) {
       if (parsed[field]) {
         try {

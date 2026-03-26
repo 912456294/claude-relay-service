@@ -7,6 +7,7 @@ const unifiedGeminiScheduler = require('../services/scheduler/unifiedGeminiSched
 const { getAvailableModels } = require('../services/relay/geminiRelayService')
 const crypto = require('crypto')
 const apiKeyService = require('../services/apiKeyService')
+const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
 
 // 生成会话哈希
 function generateSessionHash(req) {
@@ -292,6 +293,13 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
     // 生成会话哈希用于粘性会话
     sessionHash = generateSessionHash(req)
 
+    const _userInput = extractUserInput(req.body, 'openai')
+    const _usageExtra = {
+      sessionId: sessionHash || null,
+      userInput: _userInput,
+      projectType: classifyProjectType(_userInput)
+    }
+
     // 选择可用的 Gemini 账户
     try {
       accountSelection = await unifiedGeminiScheduler.selectAccountForApiKey(
@@ -540,7 +548,10 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
               0, // cacheReadTokens
               model,
               account.id,
-              'gemini'
+              'gemini',
+              undefined, // timestamp
+              undefined, // serviceTier
+              _usageExtra
             )
             logger.info(
               `📊 Recorded Gemini stream usage - Input: ${totalUsage.promptTokenCount}, Output: ${totalUsage.candidatesTokenCount}, Total: ${totalUsage.totalTokenCount}`
@@ -642,7 +653,10 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
             0, // cacheReadTokens
             model,
             account.id,
-            'gemini'
+            'gemini',
+            undefined, // timestamp
+            undefined, // serviceTier
+            _usageExtra
           )
           logger.info(
             `📊 Recorded Gemini usage - Input: ${openaiResponse.usage.prompt_tokens}, Output: ${openaiResponse.usage.completion_tokens}, Total: ${openaiResponse.usage.total_tokens}`

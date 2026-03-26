@@ -52,6 +52,7 @@ const {
   dumpAntigravityStreamEvent,
   dumpAntigravityStreamSummary
 } = require('../utils/antigravityUpstreamResponseDump')
+const { extractUserInput, classifyProjectType } = require('../utils/userInputExtractor')
 
 // ============================================================================
 // 常量定义
@@ -2138,6 +2139,11 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
         : mapGeminiFinishReasonToAnthropicStopReason(finishReason)
 
       if (req.apiKey?.id && (inputTokens > 0 || outputTokens > 0)) {
+        const _usageExtra = {
+          sessionId: sessionHash || null,
+          userInput: extractUserInput(req.body, 'anthropic'),
+          projectType: classifyProjectType(req.body, 'anthropic')
+        }
         const bridgeCosts = await apiKeyService.recordUsage(
           req.apiKey.id,
           inputTokens,
@@ -2146,7 +2152,10 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
           0,
           effectiveModel,
           accountId,
-          'gemini'
+          'gemini',
+          null,
+          null,
+          _usageExtra
         )
         await applyRateLimitTracking(
           req.rateLimitInfo,
@@ -2696,6 +2705,11 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
       }
 
       if (req.apiKey?.id && (inputTokens > 0 || outputTokens > 0)) {
+        const _streamUsageExtra = {
+          sessionId: sessionHash || null,
+          userInput: extractUserInput(req.body, 'anthropic'),
+          projectType: classifyProjectType(req.body, 'anthropic')
+        }
         const bridgeStreamCosts = await apiKeyService.recordUsage(
           req.apiKey.id,
           inputTokens,
@@ -2704,7 +2718,10 @@ async function handleAnthropicMessagesToGemini(req, res, { vendor, baseModel }) 
           0,
           effectiveModel,
           accountId,
-          'gemini'
+          'gemini',
+          null,
+          null,
+          _streamUsageExtra
         )
         await applyRateLimitTracking(
           req.rateLimitInfo,

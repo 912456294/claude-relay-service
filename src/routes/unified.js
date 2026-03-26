@@ -12,6 +12,11 @@ const { CODEX_CLI_INSTRUCTIONS } = require('./openaiRoutes')
 const apiKeyService = require('../services/apiKeyService')
 const GeminiToOpenAIConverter = require('../services/geminiToOpenAI')
 const CodexToOpenAIConverter = require('../services/codexToOpenAI')
+const {
+  applyReasoningTranslation,
+  shouldTranslateForKey
+} = require('../utils/reasoningTranslationTransformer')
+const config = require('../../config/config')
 
 const router = express.Router()
 
@@ -75,6 +80,15 @@ async function routeToBackend(req, res, requestedModel) {
       })
     }
     // 响应格式拦截：Codex/Responses → OpenAI Chat Completions
+    // 思考链路翻译必须先于 codex 转换器 patch，使 codex 的 originalWrite 指向翻译层
+    // 数据流：handleResponses → codex(转换格式) → translation(拦截 reasoning) → client
+    if (req.body.stream !== false && shouldTranslateForKey(req.apiKey?.name)) {
+      applyReasoningTranslation(res, {
+        keyId: req.apiKey?.id,
+        model: config.translation.model
+      })
+      logger.debug(`🌐 [ReasoningTranslation] 已为 API Key "${req.apiKey?.name}" 启用思考链路翻译`)
+    }
     const codexConverter = new CodexToOpenAIConverter()
     const originalJson = res.json.bind(res)
 
